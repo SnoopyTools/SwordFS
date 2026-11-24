@@ -17,63 +17,31 @@ jobs:
           brew install xcodegen ldid
 
       - name: Build (unsigned)
-        id: build
         run: |
-          set -o pipefail
-          xcodegen generate
+          xcodegen -spec project.yml
           xcodebuild -project SwordFS.xcodeproj \
             -scheme SwordFS \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
             clean build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_ENTITLEMENTS="" 2>&1 | tee build.log
-
-      - name: Record diagnostics
-        if: always()
-        run: |
-          if [ -f build.log ]; then
-            ERRORS=$(grep -E "error:|warning: .*deprecated" build.log | head -n 60 || true)
-            {
-              echo '## Build diagnostics'
-              echo '```'
-              echo "$ERRORS"
-              echo '```'
-              echo '## Tail'
-              echo '```'
-              tail -n 80 build.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          git status --short >> "$GITHUB_STEP_SUMMARY" || true
+            CODE_SIGN_ENTITLEMENTS=""
 
       - name: Fake-sign with ldid + entitlements
-        if: steps.build.outcome == 'success'
         run: |
           APP="build/Build/Products/Release-iphoneos/SwordFS.app"
           ldid -SSwordFS/SwordFS.entitlements "$APP/SwordFS"
 
       - name: Package IPA
-        if: steps.build.outcome == 'success'
         run: |
           mkdir -p build/Payload
           cp -r "build/Build/Products/Release-iphoneos/SwordFS.app" build/Payload/
           cd build && zip -qry SwordFS.ipa Payload
 
       - name: Upload IPA artifact
-        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: SwordFS-ipa
           path: build/SwordFS.ipa
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
-          if-no-files-found: ignore
