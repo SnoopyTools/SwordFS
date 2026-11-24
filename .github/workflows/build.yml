@@ -18,7 +18,7 @@ jobs:
 
       - name: Build (unsigned)
         run: |
-          xcodegen -spec project.yml
+          xcodegen --spec project.yml
           xcodebuild -project SwordFS.xcodeproj \
             -scheme SwordFS \
             -configuration Release \
