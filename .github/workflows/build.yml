@@ -20,7 +20,7 @@ jobs:
         id: build
         run: |
           set -o pipefail
-          xcodegen -spec project.yml
+          xcodegen generate
           xcodebuild -project SwordFS.xcodeproj \
             -scheme SwordFS \
             -configuration Release \
