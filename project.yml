@@ -1,40 +1,79 @@
-name: SwordFS
-options:
-  bundleIdPrefix: dev.sword
-  deploymentTarget:
-    iOS: "18.1"
-  createIntermediateGroups: true
+name: Build SwordFS IPA
 
-settings:
-  base:
-    SWIFT_VERSION: "5.0"
-    CLANG_ENABLE_OBJC_ARC: YES
-    TARGETED_DEVICE_FAMILY: "1"
-    IPHONEOS_DEPLOYMENT_TARGET: "18.1"
-    ENABLE_BITCODE: NO
-    OTHER_LDFLAGS: "$(inherited) -lsandbox"
-    GCC_C_LANGUAGE_STANDARD: gnu17
-    SWIFT_OBJC_BRIDGING_HEADER: SwordFS/SwordFS-Bridging-Header.h
-    CLANG_WARN_DOCUMENTATION_COMMENTS: NO
-    SWIFT_OPTIMIZATION_LEVEL: "-O"
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
 
-targets:
-  SwordFS:
-    type: application
-    platform: iOS
-    sources:
-      - path: SwordFS
-    info:
-      path: SwordFS/Info.plist
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.sword.swordfs
-        PRODUCT_NAME: SwordFS
-        MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "1"
-        INFOPLIST_FILE: SwordFS/Info.plist
-        CODE_SIGN_ENTITLEMENTS: SwordFS/SwordFS.entitlements
-        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SDKROOT)/System/Library/PrivateFrameworks"
-    dependencies:
-      - sdk: IOSurface.framework
-      - sdk: IOKit.framework
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install xcodegen and ldid
+        run: |
+          brew install xcodegen ldid
+
+      - name: Build (unsigned)
+        id: build
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild -project SwordFS.xcodeproj \
+            -scheme SwordFS \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            clean build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" 2>&1 | tee build.log
+
+      - name: Record diagnostics
+        if: always()
+        run: |
+          if [ -f build.log ]; then
+            ERRORS=$(grep -E "error:|warning: .*deprecated" build.log | head -n 60 || true)
+            {
+              echo '## Build diagnostics'
+              echo '```'
+              echo "$ERRORS"
+              echo '```'
+              echo '## Tail'
+              echo '```'
+              tail -n 80 build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          git status --short >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Fake-sign with ldid + entitlements
+        if: steps.build.outcome == 'success'
+        run: |
+          APP="build/Build/Products/Release-iphoneos/SwordFS.app"
+          ldid -SSwordFS/SwordFS.entitlements "$APP/SwordFS"
+
+      - name: Package IPA
+        if: steps.build.outcome == 'success'
+        run: |
+          mkdir -p build/Payload
+          cp -r "build/Build/Products/Release-iphoneos/SwordFS.app" build/Payload/
+          cd build && zip -qry SwordFS.ipa Payload
+
+      - name: Upload IPA artifact
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwordFS-ipa
+          path: build/SwordFS.ipa
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
