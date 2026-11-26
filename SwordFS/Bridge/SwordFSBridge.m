@@ -74,9 +74,16 @@ static void sword_log_bridge(const char *line, void *context) {
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
-            // Blocks until kernel read/write is stable. Exits the process on
-            // unrecoverable failure (upstream behavior).
-            kexploit_opa334();
+            // Blocks until kernel read/write is stable.
+            int result = kexploit_opa334();
+
+            if (result != 0) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.state = SwordExploitStateFailed;
+                    completion(NO, @"kernel exploit did not reach r/w - see log");
+                });
+                return;
+            }
 
             [self applyRootAndSandbox];
 
