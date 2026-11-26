@@ -139,6 +139,11 @@ static void sword_log_bridge(const char *line, void *context) {
             uint64_t ucred = kread64(proc_ro + off_proc_ro_p_ucred);
             printf("[i] ucred: ucred=0x%llx\n", ucred);
             if (is_kaddr_valid(ucred)) {
+                printf("[i] ucred: before uid=%u ruid=%u svuid=%u gid=%u svgid=%u label=0x%llx\n",
+                       kread32(ucred + UCRED_CR_UID), kread32(ucred + UCRED_CR_RUID),
+                       kread32(ucred + UCRED_CR_SVUID), kread32(ucred + UCRED_CR_RGID),
+                       kread32(ucred + UCRED_CR_SVGID),
+                       kread64(ucred + off_ucred_cr_label));
                 kwrite32(ucred + UCRED_CR_UID, 0);
                 kwrite32(ucred + UCRED_CR_RUID, 0);
                 kwrite32(ucred + UCRED_CR_SVUID, 0);
